@@ -7,8 +7,8 @@ class config:
     IMG_WIDTH = 28
     CHANNELS = 1
     
-    LEARNING_RATE = 0.0002
-    BATCH_SIZE = 32
+    LEARNING_RATE = 0.001
+    BATCH_SIZE = 128
     EPOCHS = 10000
     LATENT_DIM = 100
     SAMPLE_EVERY_LOOP = 1000
@@ -151,3 +151,8 @@ class GAN:
         ])
         model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE), loss='binary_crossentropy')
         return model
+    
+
+if __name__ == "__main__":
+    gan = GAN()
+    gan.train()
