@@ -54,7 +54,7 @@ class Discriminator:
 
       return model
 
-class GAN:
+class DCGAN:
     def __init__(self):
 
         print("Loading Generator Model...")
@@ -103,8 +103,7 @@ class GAN:
         
         plt.savefig("/content/image_at_{:04d}.png".format(epoch), bbox_inches='tight')
         plt.close(fig)
-
-
+        
     def train(self):
 
         real_labels = np.ones((config.BATCH_SIZE, 1))
@@ -154,5 +153,5 @@ class GAN:
     
 
 if __name__ == "__main__":
-    gan = GAN()
+    gan = DCGAN()
     gan.train()
