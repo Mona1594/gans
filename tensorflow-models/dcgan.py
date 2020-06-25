@@ -1,70 +1,36 @@
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+from tensorflow.keras.datasets import mnist
 
 class config:
     IMG_HEIGHT = 28
     IMG_WIDTH = 28
     CHANNELS = 1
     
+    LEAKY_RELU_ALPHA = 0.3
     LEARNING_RATE = 0.001
+    BETA_1 = 0.9
     BATCH_SIZE = 128
-    EPOCHS = 10000
+    EPOCHS = 5000
     LATENT_DIM = 100
-    SAMPLE_EVERY_LOOP = 1000
-    LOG_EVERY_LOOP = 500
-    
-
-class Generator:
-    @staticmethod
-    def build():
-        model = tf.keras.models.Sequential([
-            tf.keras.layers.Dense(7 * 7 * 256, input_dim=config.LATENT_DIM),
-            tf.keras.layers.Reshape((7, 7, 256)),
-            tf.keras.layers.Conv2DTranspose(128, 3, strides=2, padding='SAME'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.LeakyReLU(0.01),
-            tf.keras.layers.Conv2DTranspose(64, 3, strides=1, padding='SAME'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.LeakyReLU(0.01),
-            tf.keras.layers.Conv2DTranspose(1, 3, strides=2, padding='SAME'),
-            tf.keras.layers.Activation('tanh')
-        ])
-        return model
-
-
-class Discriminator:
-    @staticmethod
-    def build():
-      image_shape = (config.IMG_HEIGHT, config.IMG_WIDTH, config.CHANNELS)
-
-      model = tf.keras.models.Sequential([
-          tf.keras.layers.Conv2D(32, 3, strides=2, input_shape=image_shape, padding='SAME'),
-          tf.keras.layers.LeakyReLU(0.01),
-          tf.keras.layers.Conv2D(64, 3, strides=2, padding='SAME'),
-          tf.keras.layers.BatchNormalization(),
-          tf.keras.layers.LeakyReLU(0.01),
-          tf.keras.layers.Conv2D(128, 3, strides=2, padding='SAME'),
-          tf.keras.layers.BatchNormalization(),
-          tf.keras.layers.LeakyReLU(0.01),
-          tf.keras.layers.Flatten(),
-          tf.keras.layers.Dense(1),
-          tf.keras.layers.Activation('sigmoid')
-      ])
-
-      return model
+    SAMPLE_INTERVAL = 1000
+    LOG_INTERVAL = 500
+        
 
 class DCGAN:
     def __init__(self):
 
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE, beta_1=config.BETA_1)
+
         print("Loading Generator Model...")
-        self.generator = Generator.build()
+        self.generator = self.build_generator()
 
         print("Loading Discriminator Model...")
-        self.discriminator = Discriminator.build()
+        self.discriminator = self.build_discriminator()
 
         print("Building GAN Model...")
-        self.gan = self.build()
+        self.gan = self.build_gan()
 
         print("Loading Data...")
         (self.X_train, _), (_, _) = mnist.load_data()
@@ -74,13 +40,14 @@ class DCGAN:
 
         self.X_train = np.expand_dims(self.X_train, axis=3)
         print("Data Shape : ", self.X_train.shape)
+        print()
 
         self.generator_losses = []
         self.discriminator_losses = []
 
     
     def random_images(self):
-        indexes = np.random.randint(len(self.X_train), size=config.BATCH_SIZE)
+        indexes = np.random.randint(0, self.X_train.shape[0], size=config.BATCH_SIZE)
         images = self.X_train[indexes]
         return images
 
@@ -103,7 +70,8 @@ class DCGAN:
         
         plt.savefig("/content/image_at_{:04d}.png".format(epoch), bbox_inches='tight')
         plt.close(fig)
-        
+
+
     def train(self):
 
         real_labels = np.ones((config.BATCH_SIZE, 1))
@@ -133,25 +101,56 @@ class DCGAN:
             self.generator_losses.append(g_loss)
             self.discriminator_losses.append(d_loss)
 
-            if (epoch+1) % config.LOG_EVERY_LOOP == 0:
-                print("Epoch {:04d} :".format(epoch+1))
-                print("    Generator Loss - {:.4f}\tDiscriminator Loss - {:.4f}".format(g_loss, d_loss))
+            if (epoch+1) % config.LOG_INTERVAL == 0:
+                print("Epoch {}/{} :".format(epoch+1, config.EPOCHS))
+                print("    [G Loss - {:.4f}]\t[D Loss - {:.4f} | D Acc - {:.4f}]".format(g_loss, d_loss, accuracy))
               
-            if (epoch + 1) % config.SAMPLE_EVERY_LOOP == 0:
-              self.sample_images(epoch+1)
+            if (epoch + 1) % config.SAMPLE_INTERVAL == 0:
+                self.sample_images(epoch+1)
 
-    def build(self):
-        self.discriminator.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE), loss='binary_crossentropy', metrics=['accuracy'])
+    def build_generator(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Dense(7 * 7 * 256, input_dim=config.LATENT_DIM),
+            tf.keras.layers.Reshape((7, 7, 256)),
+            tf.keras.layers.Conv2DTranspose(128, 3, strides=1, use_bias=False, padding='SAME'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
+            tf.keras.layers.Conv2DTranspose(64, 3, strides=2, use_bias=False, padding='SAME'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
+            tf.keras.layers.Conv2DTranspose(1, 3, strides=2, use_bias=False,  padding='SAME'),
+            tf.keras.layers.Activation('tanh')
+        ])
+        return model
+
+    def build_discriminator(self):
+        image_shape = (config.IMG_HEIGHT, config.IMG_WIDTH, config.CHANNELS)
+        model = tf.keras.Sequential([
+            tf.keras.layers.Conv2D(32, 3, strides=2, input_shape=image_shape, padding='SAME'),
+            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
+            tf.keras.layers.Conv2D(64, 3, strides=2, padding='SAME'),
+            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
+            tf.keras.layers.Dropout(0.1),
+            tf.keras.layers.Conv2D(128, 3, strides=2, padding='SAME'),
+            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
+            tf.keras.layers.Dropout(0.1),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(1),
+            tf.keras.layers.Activation('sigmoid')
+        ])
+        return model
+
+    def build_gan(self):
+        self.discriminator.compile(optimizer=self.optimizer, loss='binary_crossentropy', metrics=['accuracy'])
         self.discriminator.trainable = False
 
         model = tf.keras.models.Sequential([
             self.generator,
             self.discriminator
         ])
-        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE), loss='binary_crossentropy')
+        model.compile(optimizer=self.optimizer, loss='binary_crossentropy')
         return model
     
-
 if __name__ == "__main__":
     gan = DCGAN()
     gan.train()
