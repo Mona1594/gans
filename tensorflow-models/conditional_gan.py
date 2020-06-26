@@ -181,4 +181,7 @@ class ConditionalGAN:
               
             if (epoch + 1) % config.SAMPLE_INTERVAL == 0:
                 self.sample_images(epoch+1)
-            
+
+if __name__ == "__main__":
+    cgan = ConditionalGAN()
+    cgan.train()
