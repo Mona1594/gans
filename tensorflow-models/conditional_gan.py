@@ -44,6 +44,9 @@ class ConditionalGAN:
         print("Building GAN...")
         self.gan = self.build_gan()
         
+        self.generator_losses = []
+        self.discriminator_losses = []
+        
     
     def build_generator(self):
         
@@ -124,12 +127,76 @@ class ConditionalGAN:
         model.compile(optimizer=self.optimizer, loss='binary_crossentropy')
         
         return model
+
+    def train_generator_step(self, Z, real_labels, valid_labels):
+        g_loss = self.gan.train_on_batch([Z, real_labels], valid_labels)
+        return g_loss
     
-    def random_images_labels(self):
+    def train_discriminator_step(self, Z, real_images, real_labels, valid_labels, fake_labels):
+        fake_images = self.generator.predict([Z, real_labels])
+        d_real_loss = self.discriminator.train_on_batch([real_images, real_labels], valid_labels)
+        d_fake_loss = self.discriminator.train_on_batch([fake_images, real_labels], fake_labels)
+        d_loss, accuracy = 0.5 * np.add(d_real_loss, d_fake_loss)
+        return d_loss, accuracy
+    
+    @tf.function
+    def train_step(self):
+        Z = np.random.normal(0, 1, size=(config.BATCH_SIZE, config.LATENT_DIM))
+        real_images, real_labels = self.random_images_with_labels()
+        valid_labels = np.ones((config.BATCH_SIZE, 1))
+        fake_labels = np.zeros((config.BATCH_SIZE, 1))
+        
+        d_loss, accuracy = self.train_discriminator_step(Z, real_images, real_labels, valid_labels, fake_labels)
+        
+        g_loss = self.train_generator_step(Z, real_labels, valid_labels)
+        
+        return g_loss, d_loss, accuracy
+    
+    def train(self):
+        for epoch in range(config.EPOCHS):   
+            g_loss, d_loss, accuracy = self.train_step()
+            
+            if (epoch + 1) % config.LOG_INTERVAL == 0:
+                self.log_progress(epoch+1, g_loss, d_loss, accuracy=accuracy)
+
+            if (epoch + 1) % config.SAMPLE_INTERVAL == 0:
+                self.sample_images(epoch+1)
+                
+            self.generator_losses.append(g_loss)
+            self.discriminator_losses.append(d_loss)
+            
+        self.generate_progress_graph()
+    
+    def random_images_with_labels(self):
         indexes = np.random.randint(0, self.train_images.shape[0], size=config.BATCH_SIZE)
         images = self.train_images[indexes]
         labels = self.train_labels[indexes]
         return images, labels
+    
+    def log_progress(self, epoch, g_loss, d_loss, accuracy=None):
+        print("Epoch {}/{} :".format(epoch+1, config.EPOCHS))
+        print(
+            "    [G Loss - {:.4f}]\t[D Loss - {:.4f}".format(g_loss, d_loss), end='')
+        if accuracy is not None:
+            print(" | D Acc - {:.4f}]".format(accuracy))
+        else:
+            print("]")
+            
+    def generate_progress_graph(self):
+        fig, axes = plt.subplots(1, 2, sharex=False, sharey=False, figsize=(24, 16))
+        axes[0].plot(self.generator_losses, color='purple',label='Generator Loss')
+        axes[1].plot(self.discriminator_losses, color='b', label='Discriminator Loss')
+
+        axes[0].set_title("Generator Loss")
+        axes[1].set_title("Discriminator Loss")
+
+        axes[0].set_xlabel("Epochs")
+        axes[1].set_xlabel("Epochs")
+
+        axes[0].set_ylabel("Loss")
+        axes[1].set_ylabel("Loss")
+        plt.savefig('/content/progress_graph.png', bbox_inches='tight')
+        plt.close(fig)
     
     def sample_images(self, epoch):
         rows, cols = 2, 5
@@ -152,35 +219,6 @@ class ConditionalGAN:
         
         plt.savefig("/content/image_at_{:04d}.png".format(epoch), bbox_inches='tight')
         plt.close(fig)
-    
-    def train(self):
-        
-        valid_labels = np.ones((config.BATCH_SIZE, 1))
-        fake_labels = np.zeros((config.BATCH_SIZE, 1))
-        
-        for epoch in range(config.EPOCHS):
-            real_images, real_labels = self.random_images_labels()
-            
-            Z = np.random.normal(0, 1, size=(config.BATCH_SIZE, config.LATENT_DIM))
-            
-            # generating fake images
-            fake_images = self.generator.predict([Z, real_labels])
-            
-            # training discriminator
-            d_real_loss = self.discriminator.train_on_batch([real_images, real_labels], valid_labels)
-            d_fake_loss = self.discriminator.train_on_batch([fake_images, real_labels], fake_labels)
-            
-            d_loss, accuracy = 0.5 * np.add(d_real_loss, d_fake_loss)
-            
-            # training gan
-            g_loss = self.gan.train_on_batch([Z, real_labels], valid_labels)
-            
-            if (epoch+1) % config.LOG_INTERVAL == 0:
-                print("Epoch {}/{} :".format(epoch+1, config.EPOCHS))
-                print("    [G Loss - {:.4f}]\t[D Loss - {:.4f} | D Acc - {:.4f}]".format(g_loss, d_loss, accuracy))
-              
-            if (epoch + 1) % config.SAMPLE_INTERVAL == 0:
-                self.sample_images(epoch+1)
 
 if __name__ == "__main__":
     cgan = ConditionalGAN()
