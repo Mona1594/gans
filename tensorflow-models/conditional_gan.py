@@ -24,7 +24,6 @@ class ConditionalGAN:
         
         self.image_shape = (config.IMG_HEIGHT, config.IMG_WIDTH, config.CHANNELS)
         self.optimizer = tf.keras.optimizers.Adam(config.LEARNING_RATE, config.BETA_1)
-        self.kernel_init = tf.keras.initializers.RandomNormal(stddev=0.02)
         
         print("Loading Data...")
         (self.train_images, self.train_labels), (_, _) = mnist.load_data()
@@ -55,16 +54,18 @@ class ConditionalGAN:
         label_input = tf.keras.Input(shape=(1,), dtype='int32')
         
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(7 * 7 * 256, input_dim=config.LATENT_DIM),
-            tf.keras.layers.Reshape((7, 7, 256)),
-            tf.keras.layers.Conv2DTranspose(128, 4, strides=1, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
+            tf.keras.layers.Dense(256, input_dim=config.LATENT_DIM),
+            tf.keras.layers.LeakyReLU(),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Activation('relu'),
-            tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
+            tf.keras.layers.Dense(512),
+            tf.keras.layers.LeakyReLU(),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Activation('relu'),
-            tf.keras.layers.Conv2DTranspose(1, 4, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
-            tf.keras.layers.Activation('tanh')
+            tf.keras.layers.Dense(1024),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dense(np.prod(self.image_shape)),
+            tf.keras.layers.Activation('tanh'),
+            tf.keras.layers.Reshape(self.image_shape)
         ])
         
         # creates a 100 dimensional embedding vector associated with the label
@@ -84,16 +85,16 @@ class ConditionalGAN:
         label_input = tf.keras.Input(shape=(1,), dtype='int32')
         
         model = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(32, 3, strides=2, input_shape=self.image_shape, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
-            tf.keras.layers.LeakyReLU(0.2),
-            tf.keras.layers.Conv2D(64, 3, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.LeakyReLU(0.2),
-            tf.keras.layers.Conv2D(128, 3, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.LeakyReLU(0.2),
-            tf.keras.layers.Flatten(),
+            tf.keras.Dense(512, input_dim=np.prod(self.image_shape)),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.Dense(512),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.Dropout(0.5),
+            tf.keras.layers.Dense(512),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.Dropout(0.5),
             tf.keras.layers.Dense(1),
+            tf.keras.layers.Activation('sigmoid')
         ])
         
         embedding_output = tf.keras.layers.Embedding(config.NUM_LABELS, np.prod(self.image_shape))
