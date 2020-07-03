@@ -97,7 +97,7 @@ class ConditionalGAN:
             tf.keras.layers.Activation('sigmoid')
         ])
         
-        embedding_output = tf.keras.layers.Embedding(config.NUM_LABELS, np.prod(self.image_shape))
+        embedding_output = tf.keras.layers.Embedding(config.NUM_LABELS, np.prod(self.image_shape))(label_input)
         embedding_output = tf.keras.layers.Flatten()(embedding_output)
         
         flat_image_input = tf.keras.layers.Flatten()(image_input)
