@@ -70,13 +70,10 @@ class ConditionalGAN:
         # creates a 100 dimensional embedding vector associated with the label
         embedding_output = tf.keras.layers.Embedding(config.NUM_LABELS, config.LATENT_DIM)(label_input)
         embedding_output = tf.keras.layers.Flatten()(embedding_output)
-        print("Embedding Output Shape : ", embedding_output.output_shape)
         
         model_input = tf.keras.layers.multiply([noise_input, embedding_output])
-        print("Model Input Shape : ", model_input.output_shape)
         
         fake_image = model(model_input)
-        print("Fake Image Shape : ", fake_image.output_shape)
         
         return tf.keras.Model([noise_input, label_input], fake_image)
 
@@ -101,10 +98,8 @@ class ConditionalGAN:
         
         embedding_output = tf.keras.layers.Embedding(config.NUM_LABELS, np.prod(self.image_shape))
         embedding_output = tf.keras.layers.Flatten()(embedding_output)
-        assert embedding_output.shape == (None, 784)
         
         flat_image_input = tf.keras.layers.Flatten()(image_input)
-        assert flat_image_input.shape == (None, 784)
         
         model_input = tf.keras.layers.multiply([flat_image_input, embedding_output])
         prediction = model(model_input)
