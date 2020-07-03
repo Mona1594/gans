@@ -85,7 +85,7 @@ class ConditionalGAN:
         label_input = tf.keras.Input(shape=(1,), dtype='int32')
         
         model = tf.keras.Sequential([
-            tf.keras.Dense(512, input_dim=np.prod(self.image_shape)),
+            tf.keras.layers.Dense(512, input_dim=np.prod(self.image_shape)),
             tf.keras.layers.LeakyReLU(),
             tf.keras.layers.Dense(512),
             tf.keras.layers.LeakyReLU(),
