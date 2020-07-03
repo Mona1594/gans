@@ -22,7 +22,7 @@ class config:
 
 class DCGAN:
     def __init__(self):
-
+        self.image_shape = (config.IMG_HEIGHT, config.IMG_WIDTH, config.CHANNELS)
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE, beta_1=config.BETA_1)
         self.kernel_init = tf.keras.initializers.RandomNormal(stddev=0.02)
 
@@ -64,7 +64,6 @@ class DCGAN:
         return model
 
     def build_discriminator(self):
-        image_shape = (config.IMG_HEIGHT, config.IMG_WIDTH, config.CHANNELS)
         model = tf.keras.Sequential([
             tf.keras.layers.Conv2D(32, 3, strides=2, input_shape=self.image_shape, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
             tf.keras.layers.LeakyReLU(0.2),
