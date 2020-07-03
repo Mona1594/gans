@@ -10,11 +10,11 @@ class config:
     IMG_WIDTH = 28
     CHANNELS = 1
 
-    LEAKY_RELU_ALPHA = 0.3
+    LEAKY_RELU_ALPHA = 0.2
     LEARNING_RATE = 0.001
-    BETA_1 = 0.9
+    BETA_1 = 0.5
     BATCH_SIZE = 128
-    EPOCHS = 5000
+    EPOCHS = 30000
     LATENT_DIM = 100
     SAMPLE_INTERVAL = 1000
     LOG_INTERVAL = 500
@@ -23,8 +23,8 @@ class config:
 class DCGAN:
     def __init__(self):
 
-        self.optimizer = tf.keras.optimizers.Adam(
-            learning_rate=config.LEARNING_RATE, beta_1=config.BETA_1)
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE, beta_1=config.BETA_1)
+        self.kernel_init = tf.keras.initializers.RandomNormal(stddev=0.02)
 
         print("Loading Generator Model...")
         self.generator = self.build_generator()
@@ -52,16 +52,13 @@ class DCGAN:
         model = tf.keras.Sequential([
             tf.keras.layers.Dense(7 * 7 * 256, input_dim=config.LATENT_DIM),
             tf.keras.layers.Reshape((7, 7, 256)),
-            tf.keras.layers.Conv2DTranspose(
-                128, 3, strides=1, use_bias=False, padding='SAME'),
+            tf.keras.layers.Conv2DTranspose(128, 4, strides=1, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
-            tf.keras.layers.Conv2DTranspose(
-                64, 3, strides=2, use_bias=False, padding='SAME'),
+            tf.keras.layers.Activation('relu'),
+            tf.keras.layers.Conv2DTranspose(64, 4, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
-            tf.keras.layers.Conv2DTranspose(
-                1, 3, strides=2, use_bias=False,  padding='SAME'),
+            tf.keras.layers.Activation('relu'),
+            tf.keras.layers.Conv2DTranspose(1, 4, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
             tf.keras.layers.Activation('tanh')
         ])
         return model
@@ -69,24 +66,21 @@ class DCGAN:
     def build_discriminator(self):
         image_shape = (config.IMG_HEIGHT, config.IMG_WIDTH, config.CHANNELS)
         model = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(
-                32, 3, strides=2, input_shape=image_shape, padding='SAME'),
-            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
-            tf.keras.layers.Conv2D(64, 3, strides=2, padding='SAME'),
-            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
-            tf.keras.layers.Dropout(0.1),
-            tf.keras.layers.Conv2D(128, 3, strides=2, padding='SAME'),
-            tf.keras.layers.LeakyReLU(config.LEAKY_RELU_ALPHA),
-            tf.keras.layers.Dropout(0.1),
+            tf.keras.layers.Conv2D(32, 3, strides=2, input_shape=self.image_shape, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
+            tf.keras.layers.LeakyReLU(0.2),
+            tf.keras.layers.Conv2D(64, 3, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.LeakyReLU(0.2),
+            tf.keras.layers.Conv2D(128, 3, strides=2, padding='SAME', use_bias=False, kernel_initializer=self.kernel_init),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.LeakyReLU(0.2),
             tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(1),
-            tf.keras.layers.Activation('sigmoid')
+            tf.keras.layers.Dense(1, activation='sigmoid'),
         ])
         return model
 
     def build_gan(self):
-        self.discriminator.compile(
-            optimizer=self.optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+        self.discriminator.compile(optimizer=self.optimizer, loss='binary_crossentropy', metrics=['accuracy'])
         self.discriminator.trainable = False
 
         model = tf.keras.models.Sequential([
@@ -96,11 +90,11 @@ class DCGAN:
         model.compile(optimizer=self.optimizer, loss='binary_crossentropy')
         return model
     
-    def train_generator_step(self, Z, real_labels):
-        g_loss = self.gan.train_on_batch(Z, real_labels)
+    def train_generator_step(self, noise, real_labels):
+        g_loss = self.gan.train_on_batch(noise, real_labels)
         return g_loss
 
-    def train_discriminator_step(self, Z, real_images, real_labels, fake_labels):
+    def train_discriminator_step(self, noise, real_images, real_labels, fake_labels):
         # generating fake images
         fake_images = self.generator.predict(Z)
 
@@ -116,16 +110,16 @@ class DCGAN:
     
     @tf.function
     def train_step(self):
-        Z = np.random.normal(0, 1, size=(config.BATCH_SIZE, config.LATENT_DIM))
+        noise = np.random.normal(0, 1, size=(config.BATCH_SIZE, config.LATENT_DIM))
         real_images = self.random_images()
         fake_labels = np.zeros((config.BATCH_SIZE, 1))
         real_labels = np.ones((config.BATCH_SIZE, 1))
         
          # train discriminator
-        d_loss, accuracy = self.train_discriminator_step(Z, real_images, real_labels, fake_labels)
+        d_loss, accuracy = self.train_discriminator_step(noise, real_images, real_labels, fake_labels)
 
         # train generator
-        g_loss = self.train_generator_step(Z, real_labels)
+        g_loss = self.train_generator_step(noise, real_labels)
         
         return g_loss, d_loss, accuracy
 
@@ -177,8 +171,8 @@ class DCGAN:
 
     def sample_images(self, epoch):
         rows, cols = 4, 4
-        Z = np.random.normal(0, 1, size=(rows * cols, config.LATENT_DIM))
-        fake_images = self.generator.predict(Z)
+        noise = tf.random.normal((rows * cols, config.LATENT_DIM))
+        fake_images = self.generator.predict(noise)
 
         fig, axes = plt.subplots(
             rows, cols, sharex=True, sharey=True, figsize=(10, 10))
