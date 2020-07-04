@@ -102,11 +102,8 @@ class ImprovedWasserteinGAN:
                     disc_new_preds = self.discriminator(new_images, training=True)
                 
                 gradient = tape1.gradient(disc_new_preds, new_images)
-                gradient = tf.reshape(gradient, (config.BATCH_SIZE, -1))
-                norm = tf.norm(gradient, axis=1)
-                norm = tf.expand_dims(norm, axis=-1)
                 
-                loss = disc_fake_preds - disc_real_preds + config.LAMBDA * tf.math.pow(norm - 1, 2)
+                loss = disc_fake_preds - disc_real_preds + config.LAMBDA * tf.math.pow(tf.norm(gradient) - 1, 2)
                 loss = tf.reduce_mean(loss)
             
             gradients = tape.gradient(loss, self.discriminator.trainable_variables)
