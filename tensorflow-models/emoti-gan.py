@@ -1,12 +1,17 @@
+!pip install gitpython
+
 import tensorflow as tf
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+from git import Repo
 
 import re
 import json
+import time
+import os
 
 
 class config:
@@ -34,10 +39,16 @@ class EmotiGAN:
         
         print("Fetching Dataset...")
         self.train_images, self.train_labels = self.fetch_dataset()
-        
+
+        print("   Train Images Shape : ", self.train_images.shape)
+        print()
+
         print("Building Vocabulary...")
         self.word_index, self.train_sequences, self.padded_sequences = self.build_vocab()
+        print("   Word Index Length : ", len(self.word_index))
+        print("   Padded Sequences Shape : ", self.padded_sequences.shape)
         
+        print()
         print("Building Generator...")
         self.generator = self.build_generator()
         
@@ -68,10 +79,12 @@ class EmotiGAN:
         ])
         
         embedding_output = tf.keras.layers.Embedding(config.NUM_WORDS, config.LATENT_DIM)(label_input)
-        embedding_output = tf.keras.layers.Lambda(lambda tensor: tf.math.reduce_prod(tensor, axis=0))
+        embedding_output = tf.keras.layers.Lambda(lambda tensor: tf.math.reduce_prod(tensor, axis=1))(embedding_output)
         
+        print("   Embedding Output Shape : ", embedding_output.shape)
         model_input = tf.keras.layers.multiply([noise_input, embedding_output])
         
+        print("   Model Input Shape : ", model_input.shape)
         fake_image = model(model_input)
         return tf.keras.Model([noise_input, label_input], fake_image)
     
@@ -93,11 +106,14 @@ class EmotiGAN:
         ])
         
         embedding_output = tf.keras.layers.Embedding(config.NUM_WORDS, np.prod(self.image_shape))(label_input)
-        embedding_output = tf.keras.layers.Lambda(lambda tensor: tf.math.reduce_prod(tensor, axis=0))
+        embedding_output = tf.keras.layers.Lambda(lambda tensor: tf.math.reduce_prod(tensor, axis=1))(embedding_output)
+        embedding_output = tf.keras.layers.Reshape((64, 64, 3))(embedding_output)
+        print("   Embedding Output Shape : ", embedding_output.shape)
+        # flat_image_input = tf.keras.layers.Flatten()(image_input)
         
-        flat_image_input = tf.keras.layers.Flatten()(image_input)
-        
-        model_input = tf.keras.layers.multiply([flat_image_input, embedding_output])
+        model_input = tf.keras.layers.multiply([image_input, embedding_output])
+        print("   Model Input Shape : ", model_input.shape)
+
         prediction = model(model_input)
         
         return tf.keras.Model([image_input, label_input], prediction)
@@ -116,8 +132,8 @@ class EmotiGAN:
             disc_fake_preds = self.discriminator([fake_images, real_labels], training=True)
             loss = self.generator_loss(disc_fake_preds)
             
-        gradients = tape.gradient(loss, self.generator.training_variables)
-        self.optimizer.apply_gradients(zip(gradients, self.generator.training_variables))
+        gradients = tape.gradient(loss, self.generator.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.generator.trainable_variables))
         
         return loss
             
@@ -126,11 +142,11 @@ class EmotiGAN:
         with tf.GradientTape() as tape:
             fake_images = self.generator([noise, real_labels], training=True)
             disk_fake_preds = self.discriminator([fake_images, real_labels], training=True)
-            disk_real_preds = self.discrimiantor([real_images, real_labels], training=True)
+            disk_real_preds = self.discriminator([real_images, real_labels], training=True)
             loss = self.discriminator_loss(disk_fake_preds, disk_real_preds)
         
-        gradients = tape.gradient(loss, self.discriminator.training_variables)
-        self.optimizer.apply_gradients(zip(gradients, self.discriminator.training_variables))
+        gradients = tape.gradient(loss, self.discriminator.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.discriminator.trainable_variables))
         
         return loss
         
@@ -151,6 +167,9 @@ class EmotiGAN:
         for epoch in range(config.EPOCHS):
             g_loss, d_loss = self.train_step()
             
+            self.generator_losses.append(g_loss)
+            self.discriminator_losses.append(d_loss)
+
             if (epoch + 1) % config.LOG_INTERVAL == 0:
                 self.log_progress(epoch, g_loss, d_loss)
             if (epoch + 1) % config.SAMPLE_INTERVAL == 0:
@@ -189,8 +208,9 @@ class EmotiGAN:
         rows, cols = 4, 4
         
         noise = tf.random.normal((rows * cols, config.LATENT_DIM))
+        _, real_labels = self.random_images_with_labels()
         
-        fake_images = self.generator.predict(noise)
+        fake_images = self.generator.predict([noise, real_labels])
         fake_images = 0.5 * fake_images + 0.5
         
         fig, axes = plt.subplots(rows, cols, sharex=True, sharey=True, figsize=(10, 10))
@@ -205,9 +225,26 @@ class EmotiGAN:
         
         plt.savefig("/content/image_at_{}.png".format(epoch), bbox_inches='tight')
         plt.close(fig)
+      
+    def transform_image(self, image):
+        alpha_channel = image[:,:,3]
+        rgb_channels = image[:,:,:3]
+
+        # White Background Image
+        white_background_image = np.ones_like(rgb_channels, dtype=np.uint8) * 255
+
+        # Alpha factor
+        alpha_factor = alpha_channel[:,:,np.newaxis].astype(np.float32) / 255.0
+        alpha_factor = np.concatenate((alpha_factor,alpha_factor,alpha_factor), axis=2)
+
+        # Transparent Image Rendered on White Background
+        base = rgb_channels.astype(np.float32) * alpha_factor
+        white = white_background_image.astype(np.float32) * (1 - alpha_factor)
+        final_image = base + white
+        return final_image.astype(np.uint8)
 
     def fetch_dataset(self):
-        
+        start = time.time()
         # utilitiy function to the clean the label
         def clean(text):
             text = text.replace("_", " ")
@@ -219,29 +256,34 @@ class EmotiGAN:
         git_clone_path = "/content/emoji-data/"
         images_dir = "/content/emoji-data/img-google-64/"
         
-        images_path = []
-        images = []
+        print("   Git Cloning Starts...")
+        if not os.path.exists(git_clone_path):
+            Repo.clone_from(git_url, git_clone_path)
+        else:
+            print("   Path already exists : {}".format(git_clone_path))
+
         labels = []
+        images = []
         emojis = json.load(open(git_clone_path + "emoji.json", "r"))
         
         for emoji in emojis:
             if emoji['has_img_google']:
-                images_path.append(images_dir + emoji['image'])
-                labels.append(clean(emoji['short_name']))
+                image_path = images_dir + emoji['image']
+                image = Image.open(image_path)
+                image = np.asarray(image)
+                if image.shape[-1] == 4:
+                    images.append(self.transform_image(image))
+                    labels.append(clean(emoji['short_name']))
         
-        print("Fetched {} image and {} labels".format(len(images_path), len(labels)))
-        
-        for image_path in images_path:
-            image = Image.open(image_path)
-            images.append(np.asarray(image))
-
-        return np.asarray(images), labels        
+        print("   Fetched {} image and {} labels".format(len(images), len(labels)))
+        end = time.time()
+        print("   Time taken : {:.4f}".format(end - start))
+        return np.stack(images, axis=0), labels        
     
-
     def build_vocab(self):
         tokenizer = Tokenizer(config.NUM_WORDS, oov_token='<OOV>')
         tokenizer.fit_on_texts(self.train_labels)
         sequences = tokenizer.texts_to_sequences(self.train_labels)
         word_index = tokenizer.word_index
-        padded_sequences = pad_sequences(sequences, max_len=config.MAX_LEN)
+        padded_sequences = pad_sequences(sequences, maxlen=config.MAX_LEN)
         return word_index, sequences, padded_sequences
