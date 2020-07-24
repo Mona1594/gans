@@ -18,7 +18,6 @@ class config:
     SAMPLE_INTERVAL = 1000
     
     
-
 class ConditionalGAN:
     def __init__(self):
         
